@@ -438,6 +438,86 @@
 
 **Status**: ✅ Fixed - Ready for docker compose up retry
 
+### Problem 4: Backend Container Hangs — Server Never Starts
+
+**Date**: June 4, 2026
+
+**Issue**: `docker compose up` showed all three containers as "Up" and healthy, but the Express server never started. The backend container was stuck running `npm run migrate` indefinitely — `npm run seed` and `npm start` never ran.
+
+**Root Cause**:
+
+- `mysql2` connection pools hold open libuv handles that keep the Node.js event loop alive
+- `runMigrations.js` and `runSeeds.js` both import the shared pool from `database-config.js` but never call `pool.end()`
+- After completing all queries and logging "All migrations completed successfully", the migrate process had no reason to exit — the open pool prevented it
+- The shell `&&` chain in the Docker `CMD` (`npm run migrate && npm run seed && npm start`) never advanced past the first step because that step never exited
+- Symptom from outside: curl to port 5000 returned "empty reply" (Docker accepted the TCP connection at the network layer but nothing inside the container was listening on 5000)
+
+**Diagnosed via**:
+
+- `docker exec ecommerce_backend ps aux` — showed the migrate node process still running after 2+ minutes
+- `docker compose logs backend` — showed "All migrations completed successfully" twice (from two container restarts) but no seed or server output
+
+### Solution 4: Explicit process.exit() in migrate and seed npm scripts
+
+**Date**: June 4, 2026
+
+**Fix Applied**:
+
+- Added `.then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })` to both the `migrate` and `seed` npm scripts in `backend/package.json`
+- This forces the standalone node process to exit cleanly after the async work completes, allowing the shell `&&` chain to advance to the next command
+
+**Rationale**:
+
+- The shared pool in `database-config.js` must stay open when the server is running (for API requests), so closing it inside `runMigrations`/`runSeeds` would break the server
+- Adding the exit in the npm script targets only the standalone invocation, leaving server startup unaffected
+- `.catch` with `process.exit(1)` ensures Docker stops the container on migration/seed failure rather than silently hanging
+
+**Files Modified**:
+
+- backend/package.json (migrate and seed scripts)
+
+**Status**: ✅ Fixed — rebuild with `docker compose up --build`
+
+### Problem 5: PUT /api/users/profile Returns 500 — snake_case / camelCase Mismatch
+
+**Date**: June 4, 2026
+
+**Discovered via**: Running `node tests/api.test.js` — test suite passed 21/26, with one real failure on `PUT /api/users/profile [500]`
+
+**Issue**: The `PUT /api/users/profile` endpoint threw `Column 'first_name' cannot be null` on every call.
+
+**Root Cause**:
+
+- `User.findById()` returned raw MySQL column names: `first_name`, `last_name`, `created_at`
+- `GET /api/users/profile` responded with those snake_case keys
+- The test (and any frontend consumer) destructured `{ firstName, lastName }` from the response — both came back as `undefined`
+- `PUT /api/users/profile` sent `undefined` for both name fields
+- `JSON.stringify` silently drops `undefined` values, so the request body arrived as `{ email }` only
+- The controller passed `firstName: undefined, lastName: undefined` to the model's `UPDATE` query, which tried to set `first_name = NULL` — rejected by the NOT NULL constraint
+
+**Diagnosed via**: `docker compose logs backend` showing the exact error and stack trace pointing to `User.model.js:30`
+
+### Solution 5: SQL Column Aliases in User.findById
+
+**Date**: June 4, 2026
+
+**Fix Applied**:
+
+- Added SQL `AS` aliases in `User.findById`: `first_name AS firstName`, `last_name AS lastName`, `created_at AS createdAt`
+- `findByEmail` intentionally left unchanged — `authService` reads `password_hash` from it directly and must stay in snake_case
+
+**Rationale**:
+
+- The alias belongs in the model (the DB↔app boundary), not scattered across services or controllers
+- `findById` is used by profile get, profile update, signup response, and `changePassword` (email only) — all benefit from camelCase
+- `findByEmail` is only used by auth flows that need `password_hash`, which has no camelCase equivalent needed
+
+**Files Modified**:
+
+- backend/src/models/User.model.js (`findById` SELECT query)
+
+**Status**: ✅ Fixed — 22/26 tests pass (4 intentional skips)
+
 ---
 
 ### Session 5: Phase 1 Build Complete
@@ -465,6 +545,30 @@
 
 ---
 
+### Session 6: Phase 2 Build Complete
+
+**Date**: June 4, 2026
+
+**Status**: ✅ Phase 2 Successfully Completed
+
+**Deliverables**:
+
+- Error utilities (`createError`, `asyncHandler` wrapper)
+- Global error-handling middleware
+- Auth middleware (JWT verification from httpOnly cookie)
+- Joi validators for all routes (auth, products, cart, orders, users)
+- Models: User, Product, Category, Cart, Order
+- Services: authService, productService, cartService, orderService, userService
+- Controllers: authController, productController, cartController, orderController, userController
+- Routes: `/api/auth`, `/api/products`, `/api/categories`, `/api/cart`, `/api/orders`, `/api/users`
+- Health check endpoint: `GET /health`
+
+**Status**: ✅ Fixed - Phase 2 Complete
+
+**Next Step**: Proceeding to Phase 3 - Full Frontend
+
+---
+
 ## AI Models Used
 
 - **Current Model**: Claude (Cline integration in VS Code)
@@ -483,6 +587,50 @@
 ---
 
 ## Parallel AI Actions
+
+### API Test Suite Created
+
+**Date**: June 4, 2026
+**Action**: Comprehensive read-only API test file created by a separate Claude Code instance running in parallel
+**Reason**: Main Cline instance was busy building Phase 3 (frontend) and we didn't want to interrupt it
+**Files modified**: backend/tests/api.test.js (new file)
+
+**Coverage**: 26 test entries across all 23 routes + /health (3 always-skipped, 1 conditionally-skipped)
+
+| Route | Method | Notes |
+|---|---|---|
+| /health | GET | |
+| /api/auth/signup | POST | disposable timestamp email |
+| /api/auth/login | POST | captures httpOnly cookie for auth tests |
+| /api/auth/me | GET | authenticated |
+| /api/auth/logout | POST | authenticated, runs last |
+| /api/products | GET | captures productId + slug for later tests |
+| /api/products?search=headphones | GET | |
+| /api/products?sort=price_asc | GET | |
+| /api/products/:id | GET | uses ID from product list |
+| /api/products/slug/:slug | GET | uses slug from product list |
+| /api/categories | GET | |
+| /api/cart | GET | authenticated |
+| /api/cart/items | POST | self-cleaning (item deleted in same run) |
+| /api/cart/items/:itemId | PUT | uses item ID from POST above |
+| /api/cart/items/:itemId | DELETE | cleanup of item added above |
+| /api/cart | DELETE | **SKIP** — would wipe pre-existing cart items |
+| /api/orders | GET | authenticated; captures orderId if any exist |
+| /api/orders/:id | GET | conditional skip if user has no orders |
+| /api/orders | POST | **SKIP** — creates real order, not reversible |
+| /api/users/profile | GET | captures profile data for update test |
+| /api/users/profile | PUT | re-sends same data (no-op) |
+| /api/users/password | PUT | **SKIP** — would break subsequent runs |
+| /api/users/addresses | GET | authenticated |
+| /api/users/addresses | POST | self-cleaning (address deleted in same run) |
+| /api/users/addresses/:id | PUT | uses ID from POST above |
+| /api/users/addresses/:id | DELETE | cleanup of address added above |
+
+**Approach**: Sequential top-level await (ESM). Cookie captured at login, reused for all authenticated calls. Cart items and addresses created during the run are deleted before the suite ends — net-zero data change.
+
+**Run with**: `npm install node-fetch --save-dev && node tests/api.test.js`
+
+---
 
 ### ESLint comma-dangle Fix
 

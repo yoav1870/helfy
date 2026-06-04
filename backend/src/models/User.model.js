@@ -10,7 +10,7 @@ const User = {
 
   async findById(id) {
     const [rows] = await db.query(
-      'SELECT id, email, first_name, last_name, created_at FROM users WHERE id = ? AND deleted_at IS NULL',
+      'SELECT id, email, first_name AS firstName, last_name AS lastName, created_at AS createdAt FROM users WHERE id = ? AND deleted_at IS NULL',
       [id]
     );
     return rows[0];
