@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { useAuth } from '../../context/AuthContext';
 import Spinner from './Spinner';
 
-const ProtectedRoute = ({ children }) => {
+function ProtectedRoute({ children }) {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
@@ -19,7 +19,7 @@ const ProtectedRoute = ({ children }) => {
   }
 
   return children;
-};
+}
 
 ProtectedRoute.propTypes = {
   children: PropTypes.node.isRequired,

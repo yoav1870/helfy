@@ -1,11 +1,17 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 
-const Header = () => {
+function Header() {
   const { isAuthenticated, user, logout } = useAuth();
   const { itemCount } = useCart();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
 
   return (
     <header className="bg-white shadow-md sticky top-0 z-50">
@@ -52,10 +58,30 @@ const Header = () => {
 
             {isAuthenticated ? (
               <>
-                <Link to="/account" className="text-gray-700 hover:text-blue-600 transition">
+                <Link
+                  to="/account"
+                  className="flex items-center gap-1.5 text-gray-700 hover:text-blue-600 transition"
+                >
+                  <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                    />
+                  </svg>
                   {user?.first_name}
                 </Link>
-                <button onClick={logout} className="text-gray-700 hover:text-blue-600 transition">
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="text-gray-700 hover:text-blue-600 transition"
+                >
                   Logout
                 </button>
               </>
@@ -77,6 +103,6 @@ const Header = () => {
       </div>
     </header>
   );
-};
+}
 
 export default Header;

@@ -1,7 +1,7 @@
 import PropTypes from 'prop-types';
 import { motion } from 'framer-motion';
 
-const Card = ({ children, className = '', hover = false }) => {
+function Card({ children, className, hover }) {
   return (
     <motion.div
       whileHover={hover ? { y: -4, boxShadow: '0 10px 25px rgba(0,0,0,0.1)' } : {}}
@@ -10,12 +10,17 @@ const Card = ({ children, className = '', hover = false }) => {
       {children}
     </motion.div>
   );
-};
+}
 
 Card.propTypes = {
   children: PropTypes.node.isRequired,
   className: PropTypes.string,
   hover: PropTypes.bool,
+};
+
+Card.defaultProps = {
+  className: '',
+  hover: false,
 };
 
 export default Card;

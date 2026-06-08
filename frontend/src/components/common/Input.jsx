@@ -1,17 +1,17 @@
 import PropTypes from 'prop-types';
 
-const Input = ({
+function Input({
   label,
-  type = 'text',
+  type,
   name,
   value,
   onChange,
   placeholder,
   error,
-  required = false,
-  disabled = false,
-  className = '',
-}) => {
+  required,
+  disabled,
+  className,
+}) {
   return (
     <div className="mb-4">
       {label && (
@@ -36,7 +36,7 @@ const Input = ({
       {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
     </div>
   );
-};
+}
 
 Input.propTypes = {
   label: PropTypes.string,
@@ -49,6 +49,16 @@ Input.propTypes = {
   required: PropTypes.bool,
   disabled: PropTypes.bool,
   className: PropTypes.string,
+};
+
+Input.defaultProps = {
+  label: undefined,
+  type: 'text',
+  placeholder: undefined,
+  error: undefined,
+  required: false,
+  disabled: false,
+  className: '',
 };
 
 export default Input;

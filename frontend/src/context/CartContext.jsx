@@ -1,4 +1,6 @@
-import { createContext, useState, useEffect, useContext } from 'react';
+import {
+  createContext, useState, useEffect, useContext, useCallback, useMemo,
+} from 'react';
 import PropTypes from 'prop-types';
 import toast from 'react-hot-toast';
 import cartService from '../services/cart.service';
@@ -6,20 +8,12 @@ import { useAuth } from './AuthContext';
 
 const CartContext = createContext();
 
-export const CartProvider = ({ children }) => {
+export function CartProvider({ children }) {
   const [cart, setCart] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const { isAuthenticated } = useAuth();
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchCart();
-    } else {
-      setCart(null);
-    }
-  }, [isAuthenticated]);
-
-  const fetchCart = async () => {
+  const fetchCart = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await cartService.getCart();
@@ -29,9 +23,17 @@ export const CartProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const addToCart = async (productId, quantity = 1) => {
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchCart();
+    } else {
+      setCart(null);
+    }
+  }, [isAuthenticated, fetchCart]);
+
+  const addToCart = useCallback(async (productId, quantity = 1) => {
     try {
       const response = await cartService.addToCart(productId, quantity);
       setCart(response.data);
@@ -41,9 +43,9 @@ export const CartProvider = ({ children }) => {
       toast.error(error.message || 'Failed to add to cart');
       throw error;
     }
-  };
+  }, []);
 
-  const updateCartItem = async (itemId, quantity) => {
+  const updateCartItem = useCallback(async (itemId, quantity) => {
     try {
       const response = await cartService.updateCartItem(itemId, quantity);
       setCart(response.data);
@@ -53,9 +55,9 @@ export const CartProvider = ({ children }) => {
       toast.error(error.message || 'Failed to update cart');
       throw error;
     }
-  };
+  }, []);
 
-  const removeFromCart = async (itemId) => {
+  const removeFromCart = useCallback(async (itemId) => {
     try {
       const response = await cartService.removeFromCart(itemId);
       setCart(response.data);
@@ -65,9 +67,9 @@ export const CartProvider = ({ children }) => {
       toast.error(error.message || 'Failed to remove item');
       throw error;
     }
-  };
+  }, []);
 
-  const clearCart = async () => {
+  const clearCart = useCallback(async () => {
     try {
       const response = await cartService.clearCart();
       setCart(response.data);
@@ -76,21 +78,24 @@ export const CartProvider = ({ children }) => {
       toast.error(error.message || 'Failed to clear cart');
       throw error;
     }
-  };
+  }, []);
 
-  const value = {
-    cart,
-    isLoading,
-    fetchCart,
-    addToCart,
-    updateCartItem,
-    removeFromCart,
-    clearCart,
-    itemCount: cart?.itemCount || 0,
-  };
+  const value = useMemo(
+    () => ({
+      cart,
+      isLoading,
+      fetchCart,
+      addToCart,
+      updateCartItem,
+      removeFromCart,
+      clearCart,
+      itemCount: cart?.itemCount || 0,
+    }),
+    [cart, isLoading, fetchCart, addToCart, updateCartItem, removeFromCart, clearCart],
+  );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
-};
+}
 
 CartProvider.propTypes = {
   children: PropTypes.node.isRequired,

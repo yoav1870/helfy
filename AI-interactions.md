@@ -520,6 +520,140 @@
 
 ---
 
+### Problem 6: Backend Container Crash — Cannot Find Package 'cookie-parser'
+
+**Date**: June 8, 2026
+
+**Discovered via**: `docker compose up` logs showing `ecommerce_backend exited with code 1`
+
+**Issue**: The backend container crashed on startup with:
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'cookie-parser' imported from /app/src/server.js
+```
+
+**Root Cause**:
+
+- `cookie-parser` was correctly listed in `backend/package.json` dependencies and present in the host's `backend/node_modules`
+- `docker-compose.yml` mounts the backend service with `./backend:/app` plus an anonymous volume `/app/node_modules` (the standard pattern to keep the container's own `node_modules` from being shadowed by the host bind-mount)
+- That anonymous volume was created and cached by Docker on an earlier run — likely before `cookie-parser` was added to `package.json` — and Docker kept reusing its stale contents on every subsequent `up`/rebuild instead of repopulating it from the freshly-built image's `npm install`
+- Net effect: the running container's `node_modules` never actually contained `cookie-parser`, even though the image build step installed it correctly
+
+**Diagnosed via**: Confirming `cookie-parser` was present in both `package.json` and the host `node_modules`, then inspecting the `volumes` section of `docker-compose.yml` for the backend service
+
+### Solution 6: Force-Recreate Backend Container with Renewed Anonymous Volumes
+
+**Date**: June 8, 2026
+
+**Fix Applied** (operational, not a code change):
+
+```bash
+docker-compose up --build --force-recreate -V backend
+```
+
+- `--build` rebuilds the image (re-runs `npm install` against the current `package.json`)
+- `--force-recreate` recreates the container
+- `-V` / `--renew-anon-volumes` discards the stale anonymous `/app/node_modules` volume and repopulates it from the new image, **without** touching the named `mysql_data` volume (so DB data is preserved)
+
+**Rationale**: This is a known Docker Compose gotcha — anonymous volumes persist across rebuilds unless explicitly renewed, which can shadow newly-added dependencies. No source files needed to change; `cookie-parser` was already correctly declared and imported.
+
+**Status**: ✅ Diagnosed — fix command provided to user (not yet executed in this session)
+
+---
+
+### Problem 7: Frontend Production Build Fails — ~67 Airbnb ESLint Violations
+
+**Date**: June 8, 2026
+
+**Discovered via**: `docker compose up --build` logs showing `[frontend build 6/6] RUN npm run build` failing with `Failed to compile` and a long list of `[eslint]` errors across ~17 files
+
+**Issue**: `react-scripts build` failed outright (exit code 1) due to ESLint errors surfaced by the build's webpack ESLint plugin.
+
+**Root Cause**:
+
+- `frontend/.eslintrc.json` extends the strict `airbnb` / `airbnb/hooks` configs
+- Most of the flagged rules (`react/function-component-definition`, `react/require-default-props`, `arrow-body-style`, `react/jsx-one-expression-per-line`, `no-use-before-define`, `object-curly-newline`, `react/jsx-no-constructed-context-values`, `react/jsx-wrap-multilines`, `import/order`, `react/no-unescaped-entities`, `react/button-has-type`, `react/self-closing-comp`, `operator-linebreak`, `prefer-promise-reject-errors`) are set to **error** severity in airbnb, not just "warn"
+- `react-scripts start` only surfaces these as console warnings during development and keeps running, so the mismatch between the codebase's actual style (arrow-function components, inline JSX expressions, etc.) and the configured airbnb rules was never caught until a production build was attempted
+- `react-scripts build`'s ESLint webpack plugin always fails the build on `error`-level findings (regardless of `CI`), so all ~67 violations across ~17 files now block compilation
+
+**Diagnosed via**: Reading the full `[eslint]` error listing in the build log, then inspecting `frontend/.eslintrc.json` and `frontend/package.json` to confirm the airbnb config was the source of the strict rules
+
+**Decision — Thorough Fix Chosen**: Rather than disabling the ESLint plugin for the build (`DISABLE_ESLINT_PLUGIN=true`, which would mask the mismatch going forward), the user opted to actually bring all ~17 files into compliance with the configured airbnb rules. Approach: group violations by rule (14 categories), fix each file once touching every applicable rule in that file, and verify with the real `npm run build` (the same check Docker runs).
+
+### Solution 7: Bring All Components/Pages/Contexts/Services into Airbnb Compliance
+
+**Date**: June 8, 2026
+
+**Fix Applied** — rewrote 18 files, by category:
+
+- **`react/function-component-definition`**: Converted every named component from `const X = (props) => {...}` to `function X(props) {...}` (Spinner, Card, Button, Input, ProtectedRoute, Footer, Header, Layout, AuthProvider, CartProvider, Home, Login, Signup, Products, Cart) — this also resolved every `arrow-body-style` violation for free, since that rule only applies to arrow functions
+- **`react/require-default-props`**: Removed destructuring defaults and added explicit `X.defaultProps = {...}` blocks (Card, Button, Input)
+- **`react/jsx-one-expression-per-line`**: Split inline `{expr}`/text mixes onto their own JSX lines, using `{' '}` as a line-separated whitespace token where needed (Cart, Products, Login, Signup)
+- **`no-use-before-define`**: Moved `checkAuth`/`fetchCart` definitions above their `useEffect` (AuthContext, CartContext); moved `fetchProducts` entirely inside its `useEffect` (Products), since it was a one-time fetch-on-mount helper with no other callers
+- **`object-curly-newline`**: Reformatted the React import destructuring onto multiple lines (AuthContext, CartContext)
+- **`react/jsx-no-constructed-context-values`**: Wrapped context `value` objects in `useMemo`, and wrapped each handler (`login`/`signup`/`logout`/`checkAuth`/`fetchCart`/`addToCart`/etc.) in `useCallback` with empty dependency arrays so the `useMemo` dependency list could be exhaustive without recomputing every render (AuthContext, CartContext)
+- **`react/jsx-wrap-multilines`**: Wrapped the `<ProtectedRoute>` JSX passed as a route `element` prop in parentheses (App.jsx)
+- **`import/order`**: Moved the `react-hot-toast` import above the local `../context/AuthContext` import (Login, Signup)
+- **`react/no-unescaped-entities`**: `Don't` → `Don&apos;t` (Login)
+- **`react/button-has-type`**: Added `type="button"` to the logout button (Header)
+- **`react/self-closing-comp`**: `<div></div>` → `<div />` (Spinner)
+- **`operator-linebreak`**: Joined the `const baseStyles =` declaration onto a single line (Button)
+- **`prefer-promise-reject-errors`**: Replaced the plain-object `Promise.reject({...})` with `Promise.reject(new Error(message))`, attaching `status`/`data` as properties on the `Error` instance (api.js)
+
+**Verification**: Ran `npm install` in `frontend/` (no local `node_modules` existed) then `npm run build` directly — the same ESLint + webpack check Docker performs. First pass caught one missed conversion (`Header.jsx` still had a trailing `};` from its old arrow-function form, triggering `no-extra-semi`); fixed and re-ran. Final result: **`Compiled with warnings`** — zero errors, only two pre-existing `no-console` warnings inside `catch` blocks (not part of the original violation list, `warn`-level only, do not fail the build).
+
+**Files Modified**: All 17 files from the violation list, plus `frontend/Dockerfile` was reverted back to plain `RUN npm run build` (the `DISABLE_ESLINT_PLUGIN=true` workaround tried earlier was rolled back once the thorough-fix path was chosen)
+
+**Status**: ✅ Fixed — production build compiles cleanly with the strict airbnb config enforced
+
+---
+
+### Problem 8: Infinite Request Loop on the Login Page
+
+**Date**: June 8, 2026
+
+**Discovered via**: User reported the login page firing requests in an endless loop (visible as a continuous stream of `GET /api/auth/me` calls and full page reloads)
+
+**Issue**: Visiting `/login` (or any page) while logged out caused the browser to repeatedly reload and re-request, never settling.
+
+**Root Cause**:
+
+- `frontend/src/services/api.js`'s axios response interceptor unconditionally did `window.location.href = '/login'` (a hard, full-page redirect) whenever **any** response came back with status `401`
+- `AuthContext`'s `checkAuth()` calls `GET /auth/me` on every mount to determine whether a session cookie is present — and for a logged-out visitor, the backend correctly responds `401` (this is the expected "not authenticated" signal, not an error condition)
+- The loop: land on `/login` → `AuthProvider` mounts → `checkAuth()` → `GET /auth/me` → `401` (normal, not logged in) → interceptor force-reloads `window.location.href = '/login'` → full page reload remounts the app → `AuthProvider` mounts again → `checkAuth()` fires again → `401` → reload → … forever
+- `ProtectedRoute` ([ProtectedRoute.jsx](frontend/src/components/common/ProtectedRoute.jsx)) already redirects unauthenticated users to `/login` cleanly via React Router's `<Navigate replace>` (no page reload), making the interceptor's hard redirect both redundant and the actual source of the loop
+
+**Diagnosed via**: Reading `api.js`'s response interceptor, `AuthContext.checkAuth`, and `ProtectedRoute` together to trace what triggers a `401` and what each layer does in response
+
+### Solution 8: Remove the Hard Redirect from the Global 401 Interceptor
+
+**Date**: June 8, 2026
+
+**Fix Applied** — in `frontend/src/services/api.js`, removed the `if (error.response?.status === 401) { window.location.href = '/login'; }` block from the response interceptor entirely, leaving it to simply normalize the error and reject:
+
+```js
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const message = error.response?.data?.error?.message || 'An error occurred';
+
+    const apiError = new Error(message);
+    apiError.status = error.response?.status;
+    apiError.data = error.response?.data;
+
+    return Promise.reject(apiError);
+  },
+);
+```
+
+**Rationale**: A `401` from `/auth/me` is an expected, routine signal (not logged in), already handled gracefully by `checkAuth` (sets `user: null`, `isAuthenticated: false`, `isLoading: false`). `ProtectedRoute` independently handles redirecting unauthenticated users to `/login` via client-side React Router navigation — no full page reload, no loop. A global hard-redirect on every `401` was unnecessary and actively harmful; removing it lets the existing auth-state machinery do its job without forcing a page reload that re-triggers the same check.
+
+**Files Modified**: `frontend/src/services/api.js`
+
+**Status**: ✅ Fixed — login page loads normally, no repeated requests or reloads
+
+---
+
 ### Session 5: Phase 1 Build Complete
 
 **Date**: June 4, 2026, 8:15 PM (Asia/Jerusalem)

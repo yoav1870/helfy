@@ -1,18 +1,17 @@
 import PropTypes from 'prop-types';
 import { motion } from 'framer-motion';
 
-const Button = ({
+function Button({
   children,
-  variant = 'primary',
-  size = 'medium',
-  isLoading = false,
-  disabled = false,
+  variant,
+  size,
+  isLoading,
+  disabled,
   onClick,
-  type = 'button',
-  className = '',
-}) => {
-  const baseStyles =
-    'font-semibold rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed';
+  type,
+  className,
+}) {
+  const baseStyles = 'font-semibold rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed';
 
   const variants = {
     primary: 'bg-blue-600 text-white hover:bg-blue-700',
@@ -61,7 +60,7 @@ const Button = ({
       )}
     </motion.button>
   );
-};
+}
 
 Button.propTypes = {
   children: PropTypes.node.isRequired,
@@ -72,6 +71,16 @@ Button.propTypes = {
   onClick: PropTypes.func,
   type: PropTypes.oneOf(['button', 'submit', 'reset']),
   className: PropTypes.string,
+};
+
+Button.defaultProps = {
+  variant: 'primary',
+  size: 'medium',
+  isLoading: false,
+  disabled: false,
+  onClick: undefined,
+  type: 'button',
+  className: '',
 };
 
 export default Button;

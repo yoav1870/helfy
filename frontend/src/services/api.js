@@ -14,17 +14,11 @@ api.interceptors.response.use(
   (error) => {
     const message = error.response?.data?.error?.message || 'An error occurred';
 
-    // Handle specific error cases
-    if (error.response?.status === 401) {
-      // Redirect to login
-      window.location.href = '/login';
-    }
+    const apiError = new Error(message);
+    apiError.status = error.response?.status;
+    apiError.data = error.response?.data;
 
-    return Promise.reject({
-      message,
-      status: error.response?.status,
-      data: error.response?.data,
-    });
+    return Promise.reject(apiError);
   }
 );
 

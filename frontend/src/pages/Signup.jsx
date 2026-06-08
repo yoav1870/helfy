@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/common/Button';
 import Input from '../components/common/Input';
-import toast from 'react-hot-toast';
 
-const Signup = () => {
+function Signup() {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -74,7 +74,8 @@ const Signup = () => {
           </Button>
         </form>
         <p className="mt-4 text-center text-gray-600">
-          Already have an account?{' '}
+          Already have an account?
+          {' '}
           <Link to="/login" className="text-blue-600 hover:underline">
             Login
           </Link>
@@ -82,6 +83,6 @@ const Signup = () => {
       </div>
     </div>
   );
-};
+}
 
 export default Signup;

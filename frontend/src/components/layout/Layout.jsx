@@ -2,7 +2,7 @@ import PropTypes from 'prop-types';
 import Header from './Header';
 import Footer from './Footer';
 
-const Layout = ({ children }) => {
+function Layout({ children }) {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <Header />
@@ -10,7 +10,7 @@ const Layout = ({ children }) => {
       <Footer />
     </div>
   );
-};
+}
 
 Layout.propTypes = {
   children: PropTypes.node.isRequired,

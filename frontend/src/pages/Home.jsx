@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import Layout from '../components/layout/Layout';
 import Button from '../components/common/Button';
 
-const Home = () => {
+function Home() {
   return (
     <Layout>
       <div className="text-center">
@@ -30,6 +30,6 @@ const Home = () => {
       </div>
     </Layout>
   );
-};
+}
 
 export default Home;
