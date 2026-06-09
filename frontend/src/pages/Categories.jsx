@@ -13,7 +13,7 @@ function Categories() {
     const fetchCategories = async () => {
       try {
         const response = await productService.getCategories();
-        setCategories(response.data);
+        setCategories(response.data || []);
       } catch (error) {
         console.error('Failed to fetch categories:', error);
       } finally {

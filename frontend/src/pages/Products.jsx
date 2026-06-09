@@ -35,7 +35,7 @@ function Products() {
     const fetchCategories = async () => {
       try {
         const response = await productService.getCategories();
-        setCategories(response.data);
+        setCategories(response.data || []);
       } catch (error) {
         console.error('Failed to fetch categories:', error);
       }
@@ -56,7 +56,7 @@ function Products() {
         });
 
         const response = await productService.getProducts(params);
-        setProducts(response.data);
+        setProducts(response.data || []);
         setPagination(response.pagination);
       } catch (error) {
         console.error('Failed to fetch products:', error);

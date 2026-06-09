@@ -796,6 +796,56 @@ api.interceptors.response.use(
 
 ---
 
+### Problem 9: Empty Screen on /products Route — categories.map() Crash
+
+**Date**: June 9, 2026
+
+**Discovered via**: Senior reported an empty screen on the `/products` route with a JS error in the browser:
+
+```
+Products.jsx:118 Uncaught TypeError: Cannot read properties of undefined (reading 'map')
+at Of (Products.jsx:118:27)
+```
+
+**Issue**: The `/products` page rendered blank and crashed on the category dropdown at line 118: `{categories.map((c) => (`.
+
+**Root Cause**:
+
+- All frontend service methods (e.g. `productService.getCategories()`) already unwrap the Axios response with `return response.data`, returning the backend JSON body — e.g. `{ success: true, data: [...] }`
+- Pages then correctly access `.data` on that result to get the actual array: `setCategories(response.data)`
+- However, there was **no defensive fallback** — if the backend returned a malformed response, or the `data` field was missing for any reason (backend crash mid-response, unexpected error shape), `setCategories(undefined)` would be called
+- `categories` state was initialized to `[]` (safe), but after the fetch it would be set to `undefined`
+- On re-render, `undefined.map(...)` throws — empty screen, no error boundary
+
+**Scope**: The same pattern existed in three places:
+
+- `frontend/src/pages/Products.jsx` line 38 — `setCategories(response.data)`
+- `frontend/src/pages/Products.jsx` line 59 — `setProducts(response.data)`
+- `frontend/src/pages/Categories.jsx` line 16 — `setCategories(response.data)`
+
+**Note**: `??` (nullish coalescing) cannot be used here — the project's ESLint config has `"env": { "es6": true }` which does not recognize ES2020 syntax, causing a parse error. `||` achieves the same result for this case (value is either an array or null/undefined).
+
+### Solution 9: Add `|| []` Defensive Fallback on Array State Setters
+
+**Date**: June 9, 2026
+
+**Fix Applied**:
+
+- `setCategories(response.data)` → `setCategories(response.data || [])` in `Products.jsx`
+- `setProducts(response.data)` → `setProducts(response.data || [])` in `Products.jsx`
+- `setCategories(response.data)` → `setCategories(response.data || [])` in `Categories.jsx`
+
+**Rationale**: Network responses cannot be fully trusted. Even when the backend is healthy and the DB has data, an unexpected response shape should never crash the UI. The fallback guarantees state is always a valid array, so `.map()` always works — worst case the list is empty, not undefined.
+
+**Files Modified**:
+
+- `frontend/src/pages/Products.jsx` (lines 38, 59)
+- `frontend/src/pages/Categories.jsx` (line 16)
+
+**Status**: ✅ Fixed
+
+---
+
 ## Search Queries & External Research
 
 (None yet)
